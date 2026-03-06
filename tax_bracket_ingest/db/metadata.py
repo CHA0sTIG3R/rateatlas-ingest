@@ -1,6 +1,6 @@
 
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Optional
 
 import psycopg
@@ -24,20 +24,19 @@ def get_last_seen_date() -> Optional[date]:
             row = cur.fetchone()
     return row[0] if row else None
 
-def update_ingest_metadata(last_seen_date: Optional[date], irs_date: Optional[date]) -> None:
+def update_ingest_metadata(last_seen_date: Optional[date], freshness_state: str) -> None:
     """
-    Update the ingest_metadata table with the provided last_seen_date and the current timestamp. The freshness_state is determined based on whether the last_seen_date matches the irs_date.
+    Update the ingest_metadata table with the provided last_seen_date and the current timestamp.
 
     Connects using the DATABASE_URL environment variable.
 
     Args:
         last_seen_date (date): The date to set as the last seen page update.
-        irs_date (date): The date of the IRS page update.
+        freshness_state (str): The freshness state of the data.
     """
     database_url = os.environ["DATABASE_URL"]
     
-    last_ingested_at = datetime.now()
-    freshness_state = "fresh" if last_seen_date != irs_date else "stale"
+    last_ingested_at = datetime.now(timezone.utc)
     
     with psycopg.connect(database_url) as conn:
         with conn.cursor() as cur:

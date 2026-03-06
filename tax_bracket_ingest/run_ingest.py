@@ -4,7 +4,9 @@ from typing import Optional
 from dataclasses import dataclass
 from functools import lru_cache
 
+from tax_bracket_ingest.db.metadata import get_last_seen_date, update_ingest_metadata
 from tax_bracket_ingest.logging_config import setup_logging
+from tax_bracket_ingest.scraper.probe import check_page_freshness
 
 load_dotenv()
 setup_logging()
@@ -203,6 +205,32 @@ def main():
         )
     html = fetch_irs_data()
     
+    irs_date = check_page_freshness(html.decode('utf-8'))
+    last_seen = get_last_seen_date()
+    
+    if irs_date == last_seen or last_seen is None:
+        logger.info(
+            "page_not_updated",
+            extra={
+                "last_seen": last_seen.isoformat() if last_seen else None,
+                "irs_date": irs_date.isoformat() if irs_date else None,
+                "action": "IRS page has not been updated since last ingest, skipping processing",
+            },
+        )
+        
+        # Update ingest_metadata with last seen date even if page is not updated to ensure we have a record of the check and to handle the case where last_seen is None (first run)
+        update_ingest_metadata(irs_date, "STALE" if last_seen else "FRESH")
+        return
+    else:
+        logger.info(
+            "page_updated",
+            extra={
+                "last_seen": last_seen.isoformat() if last_seen else None,
+                "irs_date": irs_date.isoformat() if irs_date else None,
+                "action": "IRS page has been updated since last ingest, proceeding with processing",
+            },
+        )
+    
     raw_struct = parse_irs_data(html.decode('utf-8'))
     raw_df = parse_irs_data_to_dataframe(raw_struct)
     curr_df = process_irs_dataframe(raw_df)
@@ -265,6 +293,9 @@ def main():
             "rows": len(hist_df),
             "action": "Updated historical CSV in S3"
         })
+        
+    # Update ingest_metadata with the new last seen date and freshness state
+    update_ingest_metadata(irs_date, "FRESH")
     
     logger.info("ingest_complete", extra={"action": "Ingest process completed successfully"})
 
