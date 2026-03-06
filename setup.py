@@ -11,6 +11,7 @@ setup(
         "numpy==1.26.4",
         "pandas==2.3.0",
         "python-dotenv==1.1.0",
+        "psycopg[binary]==3.3.3",
         "python-json-logger==3.3.0",
         "requests==2.32.4",
     ],
