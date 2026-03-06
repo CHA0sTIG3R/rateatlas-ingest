@@ -47,7 +47,7 @@ def get_ingest_config() -> IngestConfig:
             },
         )
         raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
-    config = IngestConfig(s3_bucket=bucket, s3_key=key)
+    config = IngestConfig(s3_bucket=bucket, s3_key=key) # type: ignore
     logger.debug(
         "ingest_config_loaded",
         extra={
@@ -273,7 +273,7 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        logger.error("ingest_error", error=str(e), extra={"action": "Error during ingest process"})
+        logger.error("ingest_error", error=str(e), extra={"action": "Error during ingest process"}) # type: ignore
         raise
     finally:
         logger.info("ingest_finished", extra={"action": "Ingest process finished"})

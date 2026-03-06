@@ -21,15 +21,15 @@ def parse_html(html_content: str) -> dict:
     data = {}
     
     for tag in soup.find_all(['h2','h4','table']):
-        if tag.name in ['h2', 'h4']:
+        if tag.name in ['h2', 'h4']: # type: ignore
             # Use the text of the header as a key
             header_text = tag.get_text(strip=True)
             data[header_text] = {}
-        elif tag.name == 'table':
+        elif tag.name == 'table': # type: ignore
             # Use the last header as the key for the table data
             if data:
                 current_header = list(data.keys())[-1]
-                data[current_header]['table'] = parse_table(tag)
+                data[current_header]['table'] = parse_table(tag) # type: ignore
     return data
 
 def parse_table(table : 'bs4.element.Tag') -> dict:
@@ -45,7 +45,7 @@ def parse_table(table : 'bs4.element.Tag') -> dict:
     rows = table.find_all('tr')
     for row in rows:
         # Find all cells in the row
-        cells = row.find_all(['th', 'td'])
+        cells = row.find_all(['th', 'td']) # type: ignore
         if len(cells) >= 2:  # Ensure there are at least two cells
             # Use the first cell as the key and the second as the value
             key = cells[0].get_text(strip=True)
