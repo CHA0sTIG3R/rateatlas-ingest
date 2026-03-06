@@ -1,19 +1,54 @@
 
+import os
+from datetime import date, datetime
+from typing import Optional
 
-from datetime import date
+import psycopg
 
 
-def get_last_seen_date(html_content: str) -> date: # type: ignore
+def get_last_seen_date() -> Optional[date]:
     """
-    Get the last seen date directly from the database 
+    Get the most recent last_seen_page_update from the ingest_metadata table.
 
-    Args:
-        html_content (str): The HTML content of the IRS tax bracket page.
+    Connects using the DATABASE_URL environment variable.
 
     Returns:
-        date: The last seen date extracted from the database.
+        date: The last seen page update date, or None if the table is empty.
     """
-    # This function would contain logic to query the database and retrieve the last seen date for the IRS tax bracket data.
-    # The implementation would depend on the database schema and how the last seen date is stored.
-    pass
+    database_url = os.environ["DATABASE_URL"]
+    with psycopg.connect(database_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT last_seen_page_update FROM ingest_metadata ORDER BY last_ingested_at DESC LIMIT 1"
+            )
+            row = cur.fetchone()
+    return row[0] if row else None
+
+def update_ingest_metadata(last_seen_date: Optional[date], irs_date: Optional[date]) -> None:
+    """
+    Update the ingest_metadata table with the provided last_seen_date and the current timestamp. The freshness_state is determined based on whether the last_seen_date matches the irs_date.
+
+    Connects using the DATABASE_URL environment variable.
+
+    Args:
+        last_seen_date (date): The date to set as the last seen page update.
+        irs_date (date): The date of the IRS page update.
+    """
+    database_url = os.environ["DATABASE_URL"]
+    
+    last_ingested_at = datetime.now()
+    freshness_state = "fresh" if last_seen_date != irs_date else "stale"
+    
+    with psycopg.connect(database_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO ingest_metadata (id, last_seen_page_update, last_ingested_at, freshness_state) 
+                VALUES (1, %s, %s, %s)
+                ON CONFLICT (id) DO UPDATE SET 
+                    last_seen_page_update = EXCLUDED.last_seen_page_update,
+                    last_ingested_at = EXCLUDED.last_ingested_at,
+                    freshness_state = EXCLUDED.freshness_state""",
+                (last_seen_date, last_ingested_at, freshness_state)
+            )
+            conn.commit()
 
