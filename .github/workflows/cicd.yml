@@ -72,3 +72,20 @@ jobs:
           aws lambda update-function-code \
             --function-name $LAMBDA_NAME \
             --image-uri $IMAGE_URI
+
+      - name: Wait for Lambda code update
+        run: |
+          aws lambda wait function-updated \
+            --function-name $LAMBDA_NAME
+
+      - name: Inject DATABASE_URL from SSM
+        run: |
+          DATABASE_URL=$(aws ssm get-parameter \
+            --name "/tax-bracket-ingest/DATABASE_URL" \
+            --with-decryption \
+            --query 'Parameter.Value' \
+            --output text)
+          echo "::add-mask::$DATABASE_URL"
+          aws lambda update-function-configuration \
+            --function-name $LAMBDA_NAME \
+            --environment "Variables={DATABASE_URL=$DATABASE_URL}"
