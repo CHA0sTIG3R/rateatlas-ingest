@@ -20,8 +20,8 @@ def test_process_irs_dataframe(sample_raw_csv):
                         'S Range Start', 'S Range End']
     assert all(col in normalized_df.columns for col in expected_columns), "Normalized DataFrame should contain expected columns."
     
-    current_year = (datetime.now().year) - 1
-    assert (normalized_df['Year'] == current_year).all(), "Year column should contain the current year."
+    expected_year = int(sample_raw_csv['Header'][0].split(' ')[0])
+    assert (normalized_df['Year'] == expected_year).all(), "Year column should match the year in the sample data."
     expected_row_count = 7 
     assert len(normalized_df) == expected_row_count, f"Normalized DataFrame should have {expected_row_count} rows."
     
