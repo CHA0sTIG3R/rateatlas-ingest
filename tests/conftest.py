@@ -75,7 +75,7 @@ def stub_out_fetch(monkeypatch, sample_page_html):
 @pytest.fixture
 def moto_s3_client():
     with mock_aws():
-        s3 = boto3.client("s3", region_name="us-east-1")
+        s3 = boto3.client("s3")
         yield s3
 
 @pytest.fixture(autouse=True)
@@ -84,9 +84,9 @@ def aws_credentials_env(monkeypatch):
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
     monkeypatch.setenv("AWS_SECURITY_TOKEN", "testing")
     monkeypatch.setenv("AWS_SESSION_TOKEN", "testing")
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
     monkeypatch.setenv("S3_BUCKET", "test-bucket")
     monkeypatch.setenv("S3_KEY", "history.csv")
-    monkeypatch.setenv("AWS_ACCOUNT_ID", "123456789012")
     monkeypatch.setenv("DRY_RUN", "0")
     monkeypatch.setenv("ENABLE_BACKEND_PUSH", "0")
     yield
