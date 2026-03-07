@@ -42,15 +42,15 @@ class TestGetLastSeenDate:
         with pytest.raises(KeyError):
             get_last_seen_date()
 
-    def test_queries_most_recent_row(self, mock_connect):
+    def test_queries_correct_table(self, mock_connect):
         _, mock_cur = mock_connect
         mock_cur.fetchone.return_value = (date(2024, 1, 15),)
 
         get_last_seen_date()
 
         sql = mock_cur.execute.call_args[0][0]
-        assert "ORDER BY last_ingested_at DESC" in sql
-        assert "LIMIT 1" in sql
+        assert "last_seen_page_update" in sql
+        assert "ingest_metadata" in sql
 
 
 class TestUpdateIngestMetadata:
@@ -58,31 +58,22 @@ class TestUpdateIngestMetadata:
         _, mock_cur = mock_connect
         last_seen = date(2024, 1, 15)
 
-        update_ingest_metadata(last_seen, "FRESH")
+        update_ingest_metadata(last_seen)
 
         mock_cur.execute.assert_called_once()
         _, params = mock_cur.execute.call_args[0]
         assert params[0] == last_seen
         assert isinstance(params[1], datetime) and params[1].tzinfo is not None
-        assert params[2] == "FRESH"
 
     def test_commits_transaction(self, mock_connect):
         mock_conn, _ = mock_connect
 
-        update_ingest_metadata(date(2024, 1, 15), "STALE")
+        update_ingest_metadata(date(2024, 1, 15))
 
         mock_conn.commit.assert_called_once()
-
-    def test_stale_freshness_state(self, mock_connect):
-        _, mock_cur = mock_connect
-
-        update_ingest_metadata(date(2024, 1, 15), "STALE")
-
-        _, params = mock_cur.execute.call_args[0]
-        assert params[2] == "STALE"
 
     def test_raises_when_database_url_missing(self, monkeypatch):
         monkeypatch.delenv("DATABASE_URL")
 
         with pytest.raises(KeyError):
-            update_ingest_metadata(date(2024, 1, 15), "FRESH")
+            update_ingest_metadata(date(2024, 1, 15))
