@@ -1,8 +1,9 @@
 from datetime import date, datetime
 from bs4 import BeautifulSoup
+from typing import Optional
 
 
-def check_page_freshness(html_content: str) -> date|None: # type: ignore
+def check_page_freshness(html_content: str) -> Optional[date]: # type: ignore
     """
     Check the freshness of the IRS tax bracket page by extracting the last updated date.
     
