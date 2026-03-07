@@ -91,7 +91,7 @@ jobs:
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
           DATABASE_URL=$(aws ssm get-parameter \
-            --name "/tax-bracket-ingest/DATABASE_URL" \
+            --name "/DATABASE_URL" \
             --with-decryption \
             --query 'Parameter.Value' \
             --output text)
