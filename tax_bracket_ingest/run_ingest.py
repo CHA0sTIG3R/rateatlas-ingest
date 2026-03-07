@@ -99,8 +99,10 @@ def read_csv_from_s3(key: str, config: Optional[IngestConfig] = None) -> pd.Data
             "action": "Fetching CSV from S3",
         },
     )
-    expected_owner = config.acc_id
-    resp = s3.get_object(Bucket=config.s3_bucket, Key=key, ExpectedBucketOwner=expected_owner)
+    kwargs = {"Bucket": config.s3_bucket, "Key": key}
+    if config.acc_id:
+        kwargs["ExpectedBucketOwner"] = config.acc_id
+    resp = s3.get_object(**kwargs)
     return pd.read_csv(BytesIO(resp["Body"].read()))
 
 def write_df_to_s3(df: pd.DataFrame, key: str, dry_run: Optional[bool] = None, config: Optional[IngestConfig] = None):
@@ -122,8 +124,10 @@ def write_df_to_s3(df: pd.DataFrame, key: str, dry_run: Optional[bool] = None, c
     buf = BytesIO()
     df.to_csv(buf, index=False)
     buf.seek(0)
-    expected_owner = config.acc_id
-    s3.put_object(Bucket=config.s3_bucket, Key=key, Body=buf.getvalue(), ExpectedBucketOwner=expected_owner)
+    kwargs = {"Bucket": config.s3_bucket, "Key": key, "Body": buf.getvalue()}
+    if config.acc_id:
+        kwargs["ExpectedBucketOwner"] = config.acc_id
+    s3.put_object(**kwargs)
     
 def push_csv_to_backend(df: pd.DataFrame, dry_run: Optional[bool] = None):
     if dry_run is None:
