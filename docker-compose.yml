@@ -6,9 +6,13 @@ services:
       dockerfile: Dockerfile.lambda
     platform: linux/amd64
 
-    # profiles: ["local"]
-    # env_file:
-    #   - .env
+    profiles: ["local"]
+    env_file:
+      - .env
 
-    # ports:
-    #   - "9000:8080"
+    ports:
+      - "9000:8080"
+
+    volumes:
+      - ./tax_bracket_ingest:/var/task/tax_bracket_ingest
+      - ./lambda_handler.py:/var/task/lambda_handler.py
