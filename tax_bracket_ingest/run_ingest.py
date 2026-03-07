@@ -33,12 +33,25 @@ TRUTHY_ENV_VALUES = {"1", "true", "t", "yes", "y", "on"}
 class IngestConfig:
     s3_bucket: str
     s3_key: str
+    acc_id: Optional[str] = None
 
 
 @lru_cache(maxsize=1)
 def get_ingest_config() -> IngestConfig:
     bucket = os.getenv("S3_BUCKET")
     key = os.getenv("S3_KEY")
+    aws_account_id = os.getenv("AWS_ACCOUNT_ID")
+    
+    if not bucket or not key:
+        logger.error(
+            "missing_s3_config",
+            extra={
+                "action": "Missing required S3 configuration in environment variables",
+                "missing": [name for name, value in (("S3_BUCKET", bucket), ("S3_KEY", key)) if not value],
+            },
+        )
+        raise ValueError("Missing required S3 configuration in environment variables")
+    
     missing = [name for name, value in (("S3_BUCKET", bucket), ("S3_KEY", key)) if not value]
     if missing:
         logger.error(
@@ -49,7 +62,7 @@ def get_ingest_config() -> IngestConfig:
             },
         )
         raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
-    config = IngestConfig(s3_bucket=bucket, s3_key=key) # type: ignore
+    config = IngestConfig(s3_bucket=bucket, s3_key=key, acc_id=aws_account_id)
     logger.debug(
         "ingest_config_loaded",
         extra={
@@ -86,7 +99,8 @@ def read_csv_from_s3(key: str, config: Optional[IngestConfig] = None) -> pd.Data
             "action": "Fetching CSV from S3",
         },
     )
-    resp = s3.get_object(Bucket=config.s3_bucket, Key=key)
+    expected_owner = config.acc_id
+    resp = s3.get_object(Bucket=config.s3_bucket, Key=key, ExpectedBucketOwner=expected_owner)
     return pd.read_csv(BytesIO(resp["Body"].read()))
 
 def write_df_to_s3(df: pd.DataFrame, key: str, dry_run: Optional[bool] = None, config: Optional[IngestConfig] = None):
@@ -108,7 +122,8 @@ def write_df_to_s3(df: pd.DataFrame, key: str, dry_run: Optional[bool] = None, c
     buf = BytesIO()
     df.to_csv(buf, index=False)
     buf.seek(0)
-    s3.put_object(Bucket=config.s3_bucket, Key=key, Body=buf.getvalue())
+    expected_owner = config.acc_id
+    s3.put_object(Bucket=config.s3_bucket, Key=key, Body=buf.getvalue(), ExpectedBucketOwner=expected_owner)
     
 def push_csv_to_backend(df: pd.DataFrame, dry_run: Optional[bool] = None):
     if dry_run is None:
@@ -218,7 +233,7 @@ def main():
             },
         )
         
-        update_ingest_metadata(irs_date, "STALE" if last_seen else "FRESH")
+        update_ingest_metadata(irs_date, "FRESH")
         return
     else:
         logger.info(
@@ -303,7 +318,6 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        logger.error("ingest_error", error=str(e), extra={"action": "Error during ingest process"}) # type: ignore
-        raise
+        logger.error("ingest_error", extra={"action": "Error during ingest process", "error": str(e)})
     finally:
         logger.info("ingest_finished", extra={"action": "Ingest process finished"})
