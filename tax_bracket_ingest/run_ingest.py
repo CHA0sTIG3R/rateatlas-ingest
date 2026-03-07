@@ -232,9 +232,8 @@ def main():
                 "action": "IRS page has not been updated since last ingest, skipping processing",
             },
         )
-        
-        update_ingest_metadata(irs_date, "FRESH")
         return
+    
     else:
         logger.info(
             "page_updated",
@@ -309,7 +308,7 @@ def main():
         })
         
     # Update ingest_metadata with the new last seen date and freshness state
-    update_ingest_metadata(irs_date, "FRESH")
+    update_ingest_metadata(irs_date)
     
     logger.info("ingest_complete", extra={"action": "Ingest process completed successfully"})
 

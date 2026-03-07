@@ -24,7 +24,7 @@ def get_last_seen_date() -> Optional[date]:
             row = cur.fetchone()
     return row[0] if row else None
 
-def update_ingest_metadata(last_seen_date: Optional[date], freshness_state: str) -> None:
+def update_ingest_metadata(last_seen_date: Optional[date]) -> None:
     """
     Update the ingest_metadata table with the provided last_seen_date and the current timestamp.
 
@@ -41,13 +41,12 @@ def update_ingest_metadata(last_seen_date: Optional[date], freshness_state: str)
     with psycopg.connect(database_url) as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """INSERT INTO ingest_metadata (id, last_seen_page_update, last_ingested_at, freshness_state) 
-                VALUES (1, %s, %s, %s)
+                """INSERT INTO ingest_metadata (id, last_seen_page_update, last_ingested_at) 
+                VALUES (1, %s, %s)
                 ON CONFLICT (id) DO UPDATE SET 
                     last_seen_page_update = EXCLUDED.last_seen_page_update,
-                    last_ingested_at = EXCLUDED.last_ingested_at,
-                    freshness_state = EXCLUDED.freshness_state""",
-                (last_seen_date, last_ingested_at, freshness_state)
+                    last_ingested_at = EXCLUDED.last_ingested_at""",
+                (last_seen_date, last_ingested_at)
             )
             conn.commit()
 
