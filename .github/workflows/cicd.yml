@@ -1,5 +1,4 @@
 name: CI + CD
-
 on: 
   push:
   pull_request:
@@ -38,14 +37,21 @@ jobs:
           pip install -r requirements-dev.txt
           pytest --cov=tax_bracket_ingest --cov-report=xml
 
-      
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false
+
       - name: Configure AWS (OIDC)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::300536313917:role/GitHubOIDCRole
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Ensure ECR repo exists
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         id: ecr
         run: |
           aws ecr describe-repositories --repository-names $ECR_REPO || \
@@ -55,8 +61,9 @@ jobs:
             --query 'repositories[0].repositoryUri' \
             --output text)
           echo "repositoryUri=$ECR_URI" >> $GITHUB_OUTPUT
-      
+
       - name: Build and push Lambda image
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         env:
           ECR_URI: ${{ steps.ecr.outputs.repositoryUri }}
         run: |
@@ -68,17 +75,20 @@ jobs:
           echo "IMAGE_URI=$ECR_URI:$GIT_SHA" >> $GITHUB_ENV
 
       - name: Update Lambda function code
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
           aws lambda update-function-code \
             --function-name $LAMBDA_NAME \
             --image-uri $IMAGE_URI
 
       - name: Wait for Lambda code update
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
           aws lambda wait function-updated \
             --function-name $LAMBDA_NAME
 
-      - name: Inject DATABASE_URL from SSM
+      - name: Inject environment variables into Lambda
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
           DATABASE_URL=$(aws ssm get-parameter \
             --name "/tax-bracket-ingest/DATABASE_URL" \
@@ -88,4 +98,13 @@ jobs:
           echo "::add-mask::$DATABASE_URL"
           aws lambda update-function-configuration \
             --function-name $LAMBDA_NAME \
-            --environment "Variables={DATABASE_URL=$DATABASE_URL}"
+            --environment "Variables={
+              DATABASE_URL=$DATABASE_URL,
+              S3_BUCKET=${{ secrets.S3_BUCKET }},
+              S3_KEY=${{ secrets.S3_KEY }},
+              DRY_RUN=0,
+              ENABLE_BACKEND_PUSH=${{ secrets.ENABLE_BACKEND_PUSH }},
+              BACKEND_URL=${{ secrets.BACKEND_URL }},
+              INGEST_API_KEY=${{ secrets.INGEST_API_KEY }},
+              AWS_ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }}
+            }"
