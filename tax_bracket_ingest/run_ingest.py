@@ -208,7 +208,7 @@ def main():
     irs_date = check_page_freshness(html.decode('utf-8'))
     last_seen = get_last_seen_date()
     
-    if irs_date == last_seen or last_seen is None:
+    if irs_date == last_seen:
         logger.info(
             "page_not_updated",
             extra={
@@ -218,7 +218,6 @@ def main():
             },
         )
         
-        # Update ingest_metadata with last seen date even if page is not updated to ensure we have a record of the check and to handle the case where last_seen is None (first run)
         update_ingest_metadata(irs_date, "STALE" if last_seen else "FRESH")
         return
     else:

@@ -19,7 +19,7 @@ def get_last_seen_date() -> Optional[date]:
     with psycopg.connect(database_url) as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT last_seen_page_update FROM ingest_metadata ORDER BY last_ingested_at DESC LIMIT 1"
+                "SELECT last_seen_page_update FROM ingest_metadata"
             )
             row = cur.fetchone()
     return row[0] if row else None
