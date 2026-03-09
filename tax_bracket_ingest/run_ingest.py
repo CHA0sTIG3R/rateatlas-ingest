@@ -4,7 +4,7 @@ from typing import Optional
 from dataclasses import dataclass
 from functools import lru_cache
 
-from tax_bracket_ingest.db.metadata import get_last_seen_date, update_ingest_metadata
+from tax_bracket_ingest.db.metadata import get_last_seen_date, update_ingest_metadata, update_skip_count
 from tax_bracket_ingest.logging_config import setup_logging
 from tax_bracket_ingest.scraper.probe import check_page_freshness
 
@@ -236,6 +236,10 @@ def main():
                 "action": "IRS page has not been updated since last ingest, skipping processing",
             },
         )
+        
+        # Update skip count in ingest_metadata since we're skipping processing due to no page update
+        update_skip_count()
+        
         return
     
     else:
