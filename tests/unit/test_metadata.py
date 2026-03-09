@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tax_bracket_ingest.db.metadata import get_last_seen_date, update_ingest_metadata
+from tax_bracket_ingest.db.metadata import get_last_seen_date, update_ingest_metadata, update_skip_count
 
 
 @pytest.fixture(autouse=True)
@@ -77,3 +77,28 @@ class TestUpdateIngestMetadata:
 
         with pytest.raises(KeyError):
             update_ingest_metadata(date(2024, 1, 15))
+
+
+class TestUpdateSkipCount:
+    def test_executes_update_on_correct_table(self, mock_connect):
+        _, mock_cur = mock_connect
+
+        update_skip_count()
+
+        mock_cur.execute.assert_called_once()
+        sql = mock_cur.execute.call_args[0][0]
+        assert "ingest_skip_count" in sql
+        assert "ingest_metadata" in sql
+
+    def test_commits_transaction(self, mock_connect):
+        mock_conn, _ = mock_connect
+
+        update_skip_count()
+
+        mock_conn.commit.assert_called_once()
+
+    def test_raises_when_database_url_missing(self, monkeypatch):
+        monkeypatch.delenv("DATABASE_URL")
+
+        with pytest.raises(KeyError):
+            update_skip_count()

@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 import psycopg
 import pytest
 
-from tax_bracket_ingest.db.metadata import get_last_seen_date, update_ingest_metadata
+from tax_bracket_ingest.db.metadata import get_last_seen_date, update_ingest_metadata, update_skip_count
 
 pytestmark = pytest.mark.integration
 
@@ -31,7 +31,9 @@ def db_conn():
                 CREATE TABLE IF NOT EXISTS ingest_metadata (
                     id                    INTEGER PRIMARY KEY DEFAULT 1,
                     last_seen_page_update DATE NOT NULL,
-                    last_ingested_at      TIMESTAMPTZ NOT NULL
+                    last_ingested_at      TIMESTAMPTZ NOT NULL,
+                    ingest_run_count      INTEGER NOT NULL DEFAULT 0,
+                    ingest_skip_count     INTEGER NOT NULL DEFAULT 0
                 )
             """)
         conn.commit()
@@ -58,8 +60,8 @@ class TestGetLastSeenDate:
 
         with db_conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO ingest_metadata (id, last_seen_page_update, last_ingested_at) VALUES (%s, %s, %s)",
-                (1, expected, datetime(2024, 6, 15, tzinfo=timezone.utc)),
+                "INSERT INTO ingest_metadata (id, last_seen_page_update, last_ingested_at, ingest_run_count, ingest_skip_count) VALUES (%s, %s, %s, %s, %s)",
+                (1, expected, datetime(2024, 6, 15, tzinfo=timezone.utc), 1, 0),
             )
         db_conn.commit()
 
@@ -97,8 +99,41 @@ class TestUpdateIngestMetadata:
 
         assert row[0].tzinfo is not None
 
+    def test_run_count_accumulates_on_upsert(self, db_conn):
+        update_ingest_metadata(date(2024, 1, 15))
+        update_ingest_metadata(date(2025, 3, 1))
+
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT ingest_run_count FROM ingest_metadata WHERE id = 1")
+            row = cur.fetchone()
+
+        assert row[0] == 2
+
     def test_roundtrip_with_get_last_seen_date(self):
         expected = date(2025, 6, 1)
         update_ingest_metadata(expected)
 
         assert get_last_seen_date() == expected
+
+
+class TestUpdateSkipCount:
+    def test_increments_skip_count(self, db_conn):
+        update_ingest_metadata(date(2024, 1, 15))
+        update_skip_count()
+
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT ingest_skip_count FROM ingest_metadata WHERE id = 1")
+            row = cur.fetchone()
+
+        assert row[0] == 1
+
+    def test_accumulates_on_multiple_calls(self, db_conn):
+        update_ingest_metadata(date(2024, 1, 15))
+        update_skip_count()
+        update_skip_count()
+
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT ingest_skip_count FROM ingest_metadata WHERE id = 1")
+            row = cur.fetchone()
+
+        assert row[0] == 2
