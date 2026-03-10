@@ -1,28 +1,34 @@
 # RateAtlas · BracketForge (`rateatlas-ingest`)
 
-> Annual IRS ingestion microservice that scrapes, normalizes, and archives tax brackets for the RateAtlas platform.
+> Signal-based IRS ingestion microservice that detects page changes, scrapes, normalizes, and archives tax brackets for the RateAtlas platform.
 >
 > Part of the [RateAtlas](../README.md) stack.
 
 ## Overview
 
-tax\_bracket\_ingest is a standalone Python microservice designed to run once per tax year. It automatically:
+`tax_bracket_ingest` is a standalone Python microservice deployed as an AWS Lambda container. It runs on a weekly schedule and automatically:
 
-1. **Fetches** the official IRS tax bracket tables for the target tax year.
-2. **Parses** filing-status–specific brackets into pandas DataFrames.
-3. **Normalizes** and cleans the data into a consistent CSV format.
-4. **Archives** the updated CSV in an AWS S3 bucket for backup.
-5. **Pushes** the new records to a downstream Spring Boot service ([*Marginal Tax Rate Calculator*](https://github.com/CHA0sTIG3R/Marginal-tax-rate-calculator)).
+1. **Probes** the IRS tax bracket page for the "Page Last Reviewed or Updated" date.
+2. **Compares** that date against the last seen date stored in Postgres.
+3. **Exits early** if the page has not changed since the last ingest — no unnecessary processing.
+4. **Fetches and parses** filing-status–specific brackets into pandas DataFrames if the page has changed.
+5. **Normalizes** and cleans the data into a consistent CSV format.
+6. **Archives** the updated CSV in an AWS S3 bucket for backup.
+7. **Pushes** the new records to the downstream Spring Boot API via `POST /api/v1/tax/upload`.
+8. **Updates** the `ingest_metadata` table in Postgres with the new page date and ingest timestamp.
 
-This ensures your backend always has the latest brackets, and you retain an immutable historical record in S3.
+This ensures the backend always has the latest brackets, S3 retains an immutable historical record, and unnecessary ingest runs are avoided when the IRS page hasn't changed.
+
+---
 
 ## Table of Contents
 
-- [Tax Bracket Ingest](#tax-bracket-ingest)
+- [RateAtlas · BracketForge (`rateatlas-ingest`)](#rateatlas--bracketforge-rateatlas-ingest)
   - [Overview](#overview)
   - [Table of Contents](#table-of-contents)
   - [Features](#features)
   - [Implementation Status](#implementation-status)
+  - [Project Structure](#project-structure)
   - [Installation](#installation)
   - [Configuration](#configuration)
   - [Scheduling](#scheduling)
@@ -32,60 +38,97 @@ This ensures your backend always has the latest brackets, and you retain an immu
   - [Contributing](#contributing)
   - [License](#license)
 
+---
+
 ## Features
 
-- **Automated scraping** of IRS tax bracket HTML each year.
+- **Signal-based change detection** — probes the IRS page date before scraping, skipping unnecessary runs.
+- **Postgres metadata tracking** — persists `last_seen_page_update`, `last_ingested_at`, `ingest_run_count`, and `ingest_skip_count` to the `ingest_metadata` table.
+- **Automated scraping** of IRS tax bracket HTML when a page change is detected.
 - **Data parsing** for all four filing statuses (Single, Married Filing Jointly, Married Filing Separately, Head of Household).
 - **Normalization** to a standard CSV schema, ready for analytics or database ingestion.
 - **S3 archival** to maintain a complete historical record (`history.csv` in S3).
-- **Spring service integration**: HTTP POST of new bracket rows to the [Marginal-tax-rate-calculator backend](https://github.com/CHA0sTIG3R/Marginal-tax-rate-calculator).
+- **Spring API integration** — HTTP POST of new bracket rows to the TaxIQ backend.
 - **Extensible design** to support additional storage backends or notification steps.
-- **Comprehensive pytest suite** (unit and integration markers).
-- **GitHub Actions CI/CD** with coverage enforcement and automated Lambda deployments.
+- **Comprehensive pytest suite** (unit and integration markers) with 90%+ coverage enforcement.
+- **GitHub Actions CI/CD** with coverage enforcement and automated Lambda deployments via OIDC.
+
+---
 
 ## Implementation Status
 
-Below is a high-level status of the key components:
-
-| Component                    | Status                   |
-| ---------------------------- | ------------------------ |
-| Fetch IRS HTML               | ✅ Implemented            |
-| Parse filing-status tables   | ✅ Implemented            |
-| Normalize to CSV schema      | ✅ Implemented            |
-| Archive to S3                | ✅ Implemented            |
-| Push to Spring backend       | ✅ Implemented            |
-| Scheduled runner (cron/AWS)  | ⚙️ Manual setup required |
-| Alternative storage backends | 🔲 Planned               |
-| Notification hooks           | 🔲 Planned               |
-| Docker containerization      | ⚙️ Optional              |
+| Component                          | Status                    |
+|------------------------------------|---------------------------|
+| Signal-based page change detection | ✅ Implemented            |
+| Postgres metadata tracking         | ✅ Implemented            |
+| Fetch IRS HTML                     | ✅ Implemented            |
+| Parse filing-status tables         | ✅ Implemented            |
+| Normalize to CSV schema            | ✅ Implemented            |
+| Archive to S3                      | ✅ Implemented            |
+| Push to Spring backend             | ✅ Implemented            |
+| AWS Lambda deployment              | ✅ Implemented            |
+| Weekly EventBridge schedule        | ⚙️ Manual setup required  |
+| Alternative storage backends       | 🔲 Planned                |
+| Notification hooks                 | 🔲 Planned                |
 
 > ✅ = Complete & tested  ⚙️ = Configured but requires external setup  🔲 = Not yet implemented
+
+---
+
+## Project Structure
+
+```txt
+tax_bracket_ingest/
+├── scraper/
+│   ├── fetch.py        # Full IRS page fetch with retries and timeout
+│   └── probe.py        # Lightweight page date extraction (change detection gate)
+├── parser/
+│   ├── parser.py       # HTML table parsing into structured dicts
+│   └── normalize.py    # DataFrame normalization and schema standardization
+├── db/
+│   └── metadata.py     # Postgres read/write for ingest_metadata table
+├── run_ingest.py       # Orchestration — gate logic, pipeline, metadata updates
+└── logging_config.py   # Structured logging setup
+
+tests/
+├── unit/
+│   ├── test_scraper.py
+│   ├── test_probe.py
+│   ├── test_parser.py
+│   ├── test_normalize.py
+│   ├── test_metadata.py
+│   └── test_push_backend.py
+└── integration/
+    └── test_run_ingest.py
+```
+
+---
 
 ## Installation
 
 1. Clone this repository:
 
-   ```bash
-   git clone https://github.com/CHA0sTIG3R/tax-bracket-ingest.git
-   cd tax-bracket-ingest
-   ```
+```bash
+   git clone https://github.com/CHA0sTIG3R/rateatlas-ingest.git
+   cd rateatlas-ingest
+```
 
-2. (Recommended) Create a virtual environment and activate it:
+1. Create a virtual environment and activate it:
 
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate  # Linux/Mac
-   venv\\Scripts\\activate   # Windows
-   ```
+```bash
+   python3 -m venv .venv
+   source .venv/bin/activate  # Linux/Mac
+   .venv\Scripts\activate     # Windows
+```
 
-3. Install dependencies:
+1. Install dependencies:
 
-   ```bash
+```bash
    pip install -r requirements.txt        # runtime dependencies
    pip install -r requirements-dev.txt    # development & testing extras
-   ```
+```
 
-   > Optional: `pip install -e .` if you prefer the package on your import path outside this repo.
+---
 
 ## Configuration
 
@@ -96,12 +139,15 @@ Create a `.env` file in the project root with the following values:
 AWS_REGION=us-east-1
 S3_BUCKET=your-s3-bucket-name
 S3_KEY=history.csv
-DRY_RUN=1              # set to 0 to enable writes to S3/backend
+DRY_RUN=1               # set to 0 to enable writes to S3/backend
 
-# Backend (optional)
-BACKEND_URL=https://your-backend      # omit to skip pushing to the API
+# Backend
+BACKEND_URL=https://your-backend
 INGEST_API_KEY=your-shared-secret
-ENABLE_BACKEND_PUSH=0                 # set to 1 to re-enable backend uploads
+ENABLE_BACKEND_PUSH=0   # set to 1 to enable backend uploads
+
+# Database (required for change detection and metadata tracking)
+DATABASE_URL=postgresql://user:password@host:5432/dbname?sslmode=require
 
 # Logging
 ENV=dev
@@ -109,59 +155,79 @@ LOG_TO_FILE=1
 LOG_PATH=logs/tax_bracket_ingest.log
 LOG_RETENTION_DAYS=7
 
-# AWS credentials (only when not using profiles/instance roles/OIDC)
+# AWS credentials (only when not using instance roles/OIDC)
 AWS_ACCESS_KEY_ID=...
 AWS_SECRET_ACCESS_KEY=...
 AWS_SESSION_TOKEN=...   # optional
 ```
 
-> The service uses `python-dotenv` to load these variables at runtime.
+> Keep production secrets in AWS SSM Parameter Store or GitHub Actions secrets. Never commit `.env` files.
+
+---
 
 ## Scheduling
 
-Since this microservice is intended to run once per tax year (e.g., early January), you can schedule it by:
+The microservice is deployed as an AWS Lambda and triggered Weekly via AWS EventBridge. Weekly polling is used instead of a fixed annual schedule because the IRS page update date varies year to year — in 2025 for example, the page updated February 20, 2026 instead of the previously assumed November date.
 
-- **Cron (Linux/Mac):** Add an entry to your crontab:
+The change detection gate ensures that weekly runs are cheap — if the IRS page hasn't updated, the Lambda exits early after a lightweight probe with no scraping, no S3 writes, and no backend push.
 
-  ```cron
-  0 2 1 1 * cd /path/to/tax-bracket-ingest && /path/to/venv/bin/python -m tax_bracket_ingest.run_ingest >> ingest.log 2>&1
-  ```
+**EventBridge schedule recommendation:** every Friday at 12:00 UTC:
 
-- **AWS EventBridge / CloudWatch Events:** Trigger a Lambda or ECS task on a yearly schedule.
+```sh
+cron(0 12 ? * FRI *)
+```
 
-Adjust the schedule mechanism to fit your infrastructure.
+For local cron-based runs:
+
+```cron
+0 12 ? * FRI * cd /path/to/rateatlas-ingest && /path/to/.venv/bin/python -m tax_bracket_ingest.run_ingest >> ingest.log 2>&1
+```
+
+---
 
 ## Usage
 
-To execute the end-to-end ingestion manually:
+Run the end-to-end ingestion manually:
 
 ```bash
 python -m tax_bracket_ingest.run_ingest
 ```
 
-`DRY_RUN` defaults to `1`, so the command logs actions without touching S3 or the backend. Backend uploads also require `ENABLE_BACKEND_PUSH=1`. Set both `DRY_RUN=0` and `ENABLE_BACKEND_PUSH=1` when you are ready to persist and push data.
+`DRY_RUN` defaults to `1` — logs actions without touching S3, the backend, or the database. Set `DRY_RUN=0` and `ENABLE_BACKEND_PUSH=1` for a real run.
 
-Sample output:
+**Expected output when page has not changed:**
 
 ```txt
-Fetching IRS brackets for 2025...
-Found 7 rows for Single filer — appending to history.
-Uploading 7 new rows to backend at https://your-backend/api/v1/tax/upload
-Backing up history.csv to s3://your-s3-bucket/history.csv
+page_not_updated — IRS page has not been updated since last ingest, skipping processing
+ingest_finished — Ingest process finished
 ```
+
+**Expected output when page has changed:**
+
+```txt
+page_updated — IRS page has been updated since last ingest, proceeding with processing
+append_new_data — Appending new data to historical CSV
+pushed_to_backend — Pushed current tax data to backend
+updated_s3 — Updated historical CSV in S3
+ingest_complete — Ingest process completed successfully
+```
+
+---
 
 ## Testing
 
-Run the full test suite (unit + integration):
+Run the full test suite:
 
 ```bash
 pytest
 ```
 
-- **Unit tests:** `pytest -m "not integration"`
-- **Integration tests:** `pytest -m integration`
+- **Unit tests only:** `pytest -m "not integration"`
+- **Integration tests only:** `pytest -m integration`
 
-Coverage reports are generated automatically (see `coverage.xml`).
+Coverage reports are generated automatically (`coverage.xml`). CI enforces 90%+ coverage.
+
+---
 
 ## Continuous Integration
 
@@ -169,17 +235,16 @@ GitHub Actions (`.github/workflows/cicd.yml`) handles:
 
 - Running pytest with coverage on Python 3.11
 - Uploading coverage reports to Codecov
-- Assuming an AWS role via OIDC, building the Lambda container image, and pushing it to ECR
+- Assuming an AWS role via OIDC
+- Building the Lambda container image and pushing to ECR
 - Updating the live Lambda function to the latest image
+- Injecting all environment variables from GitHub Actions secrets and SSM
 
-```markdown
-[![CI](https://github.com/CHA0sTIG3R/tax-bracket-ingest/actions/workflows/cicd.yml/badge.svg)](...)
-[![Codecov](https://codecov.io/gh/CHA0sTIG3R/tax-bracket-ingest/branch/main/graph/badge.svg)](...)
-```
+CI runs on every push. Deployment runs only on pushes to `main`.
+
+---
 
 ## Contributing
-
-Feel free to open issues or PRs:
 
 1. Fork the repo
 2. Create a feature branch: `git checkout -b feature/name`
@@ -187,6 +252,8 @@ Feel free to open issues or PRs:
 4. Push and open a PR targeting `main`
 
 Ensure tests pass and coverage remains above 90%.
+
+---
 
 ## License
 
