@@ -239,6 +239,14 @@ def main():
         
         # Update skip count in ingest_metadata since we're skipping processing due to no page update
         update_skip_count()
+        logger.info(
+            "updated_skip_count",
+            extra={
+                "last_seen": last_seen.isoformat() if last_seen else None,
+                "irs_date": irs_date.isoformat() if irs_date else None,
+                "action": "Incremented ingest skip count due to no page update",
+            },
+        )
         
         return
     
