@@ -205,6 +205,90 @@ def push_csv_to_backend(df: pd.DataFrame, dry_run: Optional[bool] = None):
     return response_text
     
     
+def _log_page_update_state(irs_date, last_seen) -> bool:
+    if irs_date == last_seen:
+        logger.info(
+            "page_not_updated",
+            extra={
+                "last_seen": last_seen.isoformat() if last_seen else None,
+                "irs_date": irs_date.isoformat() if irs_date else None,
+                "action": "IRS page has not been updated since last ingest, skipping processing",
+            },
+        )
+        update_skip_count()
+        logger.info(
+            "updated_skip_count",
+            extra={
+                "last_seen": last_seen.isoformat() if last_seen else None,
+                "irs_date": irs_date.isoformat() if irs_date else None,
+                "action": "Incremented ingest skip count due to no page update",
+            },
+        )
+        return False
+
+    logger.info(
+        "page_updated",
+        extra={
+            "last_seen": last_seen.isoformat() if last_seen else None,
+            "irs_date": irs_date.isoformat() if irs_date else None,
+            "action": "IRS page has been updated since last ingest, proceeding with processing",
+        },
+    )
+    return True
+
+
+def _build_hist_df(curr_df: pd.DataFrame, config: IngestConfig, dry_run: bool) -> pd.DataFrame:
+    if dry_run:
+        logger.info(
+            "dry_run_skip_history_fetch",
+            extra={
+                "rows": len(curr_df),
+                "action": "Skipped fetching historical CSV from S3 in dry-run mode",
+            },
+        )
+        return curr_df
+
+    prev_hist = read_csv_from_s3(config.s3_key, config=config)
+    latest_year = prev_hist["Year"].max()
+    recent_year_rows = prev_hist[prev_hist["Year"] == latest_year]
+
+    if not curr_df.equals(recent_year_rows):
+        hist_df = pd.concat([curr_df, prev_hist], ignore_index=True)
+        logger.info("append_new_data", extra={
+            "year": latest_year,
+            "rows_added": len(curr_df),
+            "action": "Appending new data to historical CSV"
+        })
+    else:
+        hist_df = prev_hist
+        logger.info("skipping_append", extra={
+            "year": latest_year,
+            "rows": len(curr_df),
+            "action": "No new data to append, skipping"
+        })
+
+    return hist_df
+
+
+def _push_backend_if_enabled(curr_df: pd.DataFrame, dry_run: bool):
+    if should_push_backend():
+        resp = push_csv_to_backend(curr_df, dry_run=dry_run)
+        if not dry_run:
+            logger.info("pushed_to_backend",  extra={
+                "rows": len(curr_df),
+                "response": resp,
+                "action": "Pushed current tax data to backend"
+            })
+    else:
+        logger.info(
+            "backend_push_disabled",
+            extra={
+                "rows": len(curr_df),
+                "action": "Backend push skipped because ENABLE_BACKEND_PUSH=0",
+            },
+        )
+
+
 def main():
     dry_run = is_dry_run()
     logger.info(
@@ -222,98 +306,22 @@ def main():
             "dry_run_mode",
             extra={"action": "Running ingest process in dry-run mode"},
         )
+
     html = fetch_irs_data()
-    
-    irs_date = check_page_freshness(html.decode('utf-8'))
+    html_text = html.decode("utf-8")
+
+    irs_date = check_page_freshness(html_text)
     last_seen = get_last_seen_date()
-    
-    if irs_date == last_seen:
-        logger.info(
-            "page_not_updated",
-            extra={
-                "last_seen": last_seen.isoformat() if last_seen else None,
-                "irs_date": irs_date.isoformat() if irs_date else None,
-                "action": "IRS page has not been updated since last ingest, skipping processing",
-            },
-        )
-        
-        # Update skip count in ingest_metadata since we're skipping processing due to no page update
-        update_skip_count()
-        logger.info(
-            "updated_skip_count",
-            extra={
-                "last_seen": last_seen.isoformat() if last_seen else None,
-                "irs_date": irs_date.isoformat() if irs_date else None,
-                "action": "Incremented ingest skip count due to no page update",
-            },
-        )
-        
+    if not _log_page_update_state(irs_date, last_seen):
         return
-    
-    else:
-        logger.info(
-            "page_updated",
-            extra={
-                "last_seen": last_seen.isoformat() if last_seen else None,
-                "irs_date": irs_date.isoformat() if irs_date else None,
-                "action": "IRS page has been updated since last ingest, proceeding with processing",
-            },
-        )
-    
-    raw_struct = parse_irs_data(html.decode('utf-8'))
+
+    raw_struct = parse_irs_data(html_text)
     raw_df = parse_irs_data_to_dataframe(raw_struct)
     curr_df = process_irs_dataframe(raw_df)
-    
-    if dry_run:
-        hist_df = curr_df
-        logger.info(
-            "dry_run_skip_history_fetch",
-            extra={
-                "rows": len(curr_df),
-                "action": "Skipped fetching historical CSV from S3 in dry-run mode",
-            },
-        )
-    else:
-        prev_hist = read_csv_from_s3(config.s3_key, config=config)
-        
-        latest_year = prev_hist["Year"].max()
-        recent_year_rows = prev_hist[prev_hist["Year"] == latest_year]
 
-        # Compare and append only if new
-        if not curr_df.equals(recent_year_rows):
-            hist_df = pd.concat([curr_df, prev_hist], ignore_index=True)
-            logger.info("append_new_data", extra={
-                "year": latest_year,
-                "rows_added": len(curr_df),
-                "action": "Appending new data to historical CSV"
-            })
-        else:
-            hist_df = prev_hist
-            logger.info("skipping_append", extra={
-                "year": latest_year,
-                "rows": len(curr_df),
-                "action": "No new data to append, skipping"
-            })
-    
-    # Push to backend when enabled
-    if should_push_backend():
-        resp = push_csv_to_backend(curr_df, dry_run=dry_run)
-        if not dry_run:
-            logger.info("pushed_to_backend",  extra={
-                "rows": len(curr_df),
-                "response": resp,
-                "action": "Pushed current tax data to backend"
-            })
-    else:
-        logger.info(
-            "backend_push_disabled",
-            extra={
-                "rows": len(curr_df),
-                "action": "Backend push skipped because ENABLE_BACKEND_PUSH=0",
-            },
-        )
-    
-    # update S3
+    hist_df = _build_hist_df(curr_df, config, dry_run)
+    _push_backend_if_enabled(curr_df, dry_run)
+
     write_df_to_s3(hist_df, config.s3_key, dry_run=dry_run, config=config)
     if not dry_run:
         logger.info("updated_s3",  extra={
@@ -322,10 +330,8 @@ def main():
             "rows": len(hist_df),
             "action": "Updated historical CSV in S3"
         })
-        
-    # Update ingest_metadata with the new last seen date and freshness state
+
     update_ingest_metadata(irs_date)
-    
     logger.info("ingest_complete", extra={"action": "Ingest process completed successfully"})
 
 if __name__ == "__main__":
