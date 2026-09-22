@@ -1,10 +1,12 @@
 # tax_bracket_ingest/run_ingest.py
 from dotenv import load_dotenv
+from datetime import date
 from typing import Optional
 from dataclasses import dataclass
 from functools import lru_cache
 
 from tax_bracket_ingest.db.metadata import get_last_seen_date, update_ingest_metadata, update_skip_count
+from tax_bracket_ingest.errors import FreshnessSignalError
 from tax_bracket_ingest.logging_config import setup_logging
 from tax_bracket_ingest.scraper.probe import check_page_freshness
 
@@ -237,6 +239,21 @@ def _log_page_update_state(irs_date, last_seen) -> bool:
     return True
 
 
+def _require_irs_date(irs_date: Optional[date]) -> date:
+    if irs_date is None:
+        logger.error(
+            "irs_date_unavailable",
+            extra={
+                "action": "Could not determine the IRS 'Page Last Reviewed or Updated' date; "
+                          "aborting before any backend, S3, or database mutation",
+            },
+        )
+        raise FreshnessSignalError(
+            "Unable to determine IRS 'last reviewed or updated' date from page content"
+        )
+    return irs_date
+
+
 def _build_hist_df(curr_df: pd.DataFrame, config: IngestConfig, dry_run: bool) -> pd.DataFrame:
     if dry_run:
         logger.info(
@@ -310,7 +327,7 @@ def main():
     html = fetch_irs_data()
     html_text = html.decode("utf-8")
 
-    irs_date = check_page_freshness(html_text)
+    irs_date = _require_irs_date(check_page_freshness(html_text))
     last_seen = get_last_seen_date()
     if not _log_page_update_state(irs_date, last_seen):
         return
@@ -340,5 +357,6 @@ if __name__ == "__main__":
         main()
     except Exception as e:
         logger.error("ingest_error", extra={"action": "Error during ingest process", "error": str(e)})
+        raise
     finally:
         logger.info("ingest_finished", extra={"action": "Ingest process finished"})

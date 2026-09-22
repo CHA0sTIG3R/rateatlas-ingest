@@ -14,6 +14,22 @@ jobs:
       AWS_REGION: us-east-1
       ECR_REPO: tax-bracket-ingest
       LAMBDA_NAME: tax-bracket-ingestor
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/rateatlas_test
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: rateatlas_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout code
