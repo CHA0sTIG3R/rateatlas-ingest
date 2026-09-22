@@ -10,19 +10,33 @@ from tax_bracket_ingest.db.metadata import get_last_seen_date, update_ingest_met
 pytestmark = pytest.mark.integration
 
 
+def _running_in_ci() -> bool:
+    return os.environ.get("CI", "").strip().lower() in {"1", "true", "yes"}
+
+
 @pytest.fixture(scope="module")
 def db_conn():
     """
     Yields a real psycopg connection and creates/tears down the ingest_metadata table.
-    Skips the entire module if DATABASE_URL is not set or the DB is unreachable.
+
+    Locally, missing/unreachable DATABASE_URL skips the module for developer convenience.
+    In CI, the same conditions fail the run instead: a green CI run must never be able to
+    hide the fact that the metadata integration tests never actually executed.
     """
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
+        if _running_in_ci():
+            pytest.fail(
+                "DATABASE_URL not set in CI — metadata integration tests must run "
+                "against a real database, not be silently skipped."
+            )
         pytest.skip("DATABASE_URL not set — skipping DB integration tests")
 
     try:
         conn = psycopg.connect(database_url)
     except psycopg.OperationalError as e:
+        if _running_in_ci():
+            pytest.fail(f"DATABASE_URL unreachable in CI — cannot skip: {e}")
         pytest.skip(f"DB unreachable — skipping DB integration tests: {e}")
 
     with conn:
